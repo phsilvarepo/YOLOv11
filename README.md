@@ -12,7 +12,7 @@ Requirements:
 
 Note: Trained model weights are not automatically saved to **Google Drive**. Make sure to manually download them after training.
 
-## yolov11_ros
+## yolov11_ros2
 
 This ROS2 package enables real-time inference using a custom YOLOv11 model. The node subscribes to the sensor_msgs/Image in the **/rgb** topic. And outputs the following topics: 
 
