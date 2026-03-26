@@ -3,7 +3,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
-import os  # <--- ADD THIS IMPORT
+import os
 from ultralytics import YOLO
 
 class YoloV11Detector(Node):
@@ -41,12 +41,14 @@ class YoloV11Detector(Node):
             Image, output_topic, 10)
             
     def image_callback(self, msg):
+        self.get_logger().info("Received image message")
         cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         results = self.model(cv_image, conf=0.5, verbose=False)
         annotated_frame = results[0].plot()
         out_msg = self.bridge.cv2_to_imgmsg(annotated_frame, encoding='bgr8')
         out_msg.header = msg.header 
         self.publisher.publish(out_msg)
+        self.get_logger().info("Published annotated YOLO image")
 
 def main(args=None):
     rclpy.init(args=args)
