@@ -21,18 +21,19 @@ RUN mkdir -p src
 
 # 4. Copy the ROS2 package and model weights
 COPY ./yolov11_ros2 /ros_ws/src/yolov11_ros2
-COPY ./yolo_container/leaf_seg.pt /ros_ws/src/yolov11_ros2/leaf_seg.pt
 
-# 5. Build the workspace using bash
+# 5. Build the workspace
 RUN bash -c "source /opt/ros/humble/setup.bash && colcon build --packages-select yolov11_ros2"
 
-# 6. Define Environment Variables (Defaults)
-ENV YOLO_MODEL="/ros_ws/src/yolov11_ros2/leaf_seg.pt"
-ENV YOLO_INPUT_TOPIC="/rgb"
-ENV YOLO_OUTPUT_TOPIC="/yolo/detections_image"
+# 6. Define Environment Variables
+ENV MODEL_PATH="yolo11n.pt"
+ENV INPUT_TOPIC="/rgb"
+ENV OUTPUT_TOPIC="/yolo/detections_image"
+ENV CONFIDENCE_THRESHOLD="0.5"
+ENV IMAGE_RESOLUTION="640"
 ENV FASTDDS_BUILTIN_TRANSPORTS=UDPv4
 
-# 7. Setup sourcing for interactive shells
+# 7. Setup sourcing
 RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc && \
     echo "source /ros_ws/install/setup.bash" >> ~/.bashrc
 
