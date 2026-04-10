@@ -2,80 +2,97 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
-import cv2
+from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
+from visualization_msgs.msg import MarkerArray, Marker
+from geometry_msgs.msg import Point
 import os
 from ultralytics import YOLO
 
-class YoloV11Detector(Node):
+class Yolov11Node(Node):
     def __init__(self):
-        super().__init__('yolov11_detector')
-        
-        # 1. Fetch values from Environment Variables (set by our Dashboard Backend)
-        env_model = os.environ.get('MODEL_PATH', 'yolo11n.pt')
-        env_input = os.environ.get('INPUT_TOPIC', '/rgb')
-        env_output = os.environ.get('OUTPUT_TOPIC', '/yolo/detections_image')
-        
-        env_conf = os.environ.get('CONFIDENCE_THRESHOLD', '0.5')
-        env_size = os.environ.get('IMAGE_RESOLUTION', '640')
-        
-        print(env_conf)
-
-        # 2. Declare ROS parameters
-        self.declare_parameter('model_path', env_model)
-        self.declare_parameter('image_topic', env_input)
-        self.declare_parameter('output_topic', env_output)
-        self.declare_parameter('conf_threshold', float(env_conf))
-        self.declare_parameter('img_size', int(env_size))
-        
-        # 3. Get the final values
-        self.model_path = self.get_parameter('model_path').value
-        self.image_topic = self.get_parameter('image_topic').value
-        self.output_topic = self.get_parameter('output_topic').value
-        self.conf = self.get_parameter('conf_threshold').value
-        self.imgsz = self.get_parameter('img_size').value
-
-        self.get_logger().info(f"--- YOLOv11 Initialized ---")
-        self.get_logger().info(f"Model: {self.model_path} | Res: {self.imgsz} | Conf: {self.conf}")
-        self.get_logger().info(f"Sub: {self.image_topic} -> Pub: {self.output_topic}")
-
-        # Load Model
-        self.model = YOLO(self.model_path)
+        super().__init__('generic_yolo_node')
         self.bridge = CvBridge()
 
-        # 4. ROS Subscriber and Publisher
-        self.subscription = self.create_subscription(
-            Image, self.image_topic, self.image_callback, 10)
+        # 1. Config from Env (Dashboard injected)
+        model_path = os.environ.get('MODEL_PATH', 'yolo11n.pt')
+        self.conf = float(os.environ.get('CONFIDENCE_THRESHOLD', '0.5'))
+        self.imgsz = int(os.environ.get('IMAGE_RESOLUTION', '640'))
+        input_topic = os.environ.get('INPUT_TOPIC', '/image_raw')
+
+        # 2. Initialize Model
+        self.get_logger().info(f"Loading Model: {model_path}")
+        self.model = YOLO(model_path)
         
-        self.publisher = self.create_publisher(
-            Image, self.output_topic, 10)
-            
+        # 3. Dynamic Publishers based on Dashboard Envs
+        self.img_pub = self.create_publisher(Image, os.environ['OUTPUT_TOPIC_IMAGE'], 10) if 'OUTPUT_TOPIC_IMAGE' in os.environ else None
+        self.bb_pub = self.create_publisher(Detection2DArray, os.environ['OUTPUT_TOPIC_BB'], 10) if 'OUTPUT_TOPIC_BB' in os.environ else None
+        self.marker_pub = self.create_publisher(MarkerArray, os.environ['OUTPUT_TOPIC_MARKERS'], 10) if 'OUTPUT_TOPIC_MARKERS' in os.environ else None
+
+        # 4. Subscriber
+        self.subscription = self.create_subscription(Image, input_topic, self.image_callback, 10)
+        self.get_logger().info(f"YOLO Generic Node active. Task: {self.model.task}")
+
     def image_callback(self, msg):
-        # Convert ROS Image to OpenCV
         cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         
-        # Run Inference with our Dynamic Params
-        results = self.model(
-            cv_image, 
-            conf=self.conf, 
-            imgsz=self.imgsz, 
-            verbose=False
-        )
-        
-        # Plot and Publish
-        annotated_frame = results[0].plot()
-        out_msg = self.bridge.cv2_to_imgmsg(annotated_frame, encoding='bgr8')
-        out_msg.header = msg.header 
-        self.publisher.publish(out_msg)
+        # Run inference
+        results = self.model(cv_image, conf=self.conf, imgsz=self.imgsz, verbose=False)[0]
+
+        # --- Output 1: Debug Image (Supports Detect, Seg, and Pose automatically) ---
+        if self.img_pub:
+            # results.plot() draws boxes, masks, or skeletons based on the .pt file used
+            annotated_frame = results.plot()
+            img_msg = self.bridge.cv2_to_imgmsg(annotated_frame, encoding='bgr8')
+            img_msg.header = msg.header
+            self.img_pub.publish(img_msg)
+
+        # --- Output 2: Bounding Boxes / Metadata ---
+        if self.bb_pub and results.boxes:
+            bb_msg = Detection2DArray()
+            bb_msg.header = msg.header
+            for box in results.boxes:
+                det = Detection2D()
+                det.bbox.center.position.x = float(box.xywh[0][0])
+                det.bbox.center.position.y = float(box.xywh[0][1])
+                det.bbox.size_x = float(box.xywh[0][2])
+                det.bbox.size_y = float(box.xywh[0][3])
+
+                hyp = ObjectHypothesisWithPose()
+                # Use class name instead of ID for easier dashboard debugging
+                hyp.hypothesis.class_id = self.model.names[int(box.cls[0])]
+                hyp.hypothesis.score = float(box.conf[0])
+                det.results.append(hyp)
+                bb_msg.detections.append(det)
+            self.bb_pub.publish(bb_msg)
+
+        # --- Output 3: Pose Markers (Specific to Pose models) ---
+        if self.marker_pub and results.keypoints:
+            marker_array = MarkerArray()
+            for i, person_kpts in enumerate(results.keypoints.xy):
+                marker = Marker()
+                marker.header = msg.header
+                marker.ns = "yolo_pose"
+                marker.id = i
+                marker.type = Marker.SPHERE_LIST
+                marker.action = Marker.ADD
+                marker.scale.x = marker.scale.y = marker.scale.z = 0.05
+                marker.color.r, marker.color.a = 1.0, 1.0
+                
+                for kp in person_kpts:
+                    if kp[0] == 0 and kp[1] == 0: continue # Skip untracked points
+                    p = Point()
+                    p.x, p.y, p.z = float(kp[0]), float(kp[1]), 0.0
+                    marker.points.append(p)
+                marker_array.markers.append(marker)
+            self.marker_pub.publish(marker_array)
 
 def main(args=None):
     rclpy.init(args=args)
-    node = YoloV11Detector()
+    node = Yolov11Node()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
-    node.destroy_node()
-    rclpy.shutdown()
-
-if __name__ == '__main__':
-    main()
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
