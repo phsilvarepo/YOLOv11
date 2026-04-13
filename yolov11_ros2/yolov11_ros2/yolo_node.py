@@ -46,23 +46,27 @@ class Yolov11Node(Node):
             img_msg.header = msg.header
             self.img_pub.publish(img_msg)
 
-        # --- Output 2: Bounding Boxes / Metadata ---
-        if self.bb_pub and results.boxes:
+        # --- Output 2: Bounding Boxes (FIXED) ---
+        if self.bb_pub:
             bb_msg = Detection2DArray()
             bb_msg.header = msg.header
-            for box in results.boxes:
-                det = Detection2D()
-                det.bbox.center.position.x = float(box.xywh[0][0])
-                det.bbox.center.position.y = float(box.xywh[0][1])
-                det.bbox.size_x = float(box.xywh[0][2])
-                det.bbox.size_y = float(box.xywh[0][3])
+            
+            # Only loop if boxes actually exist, but ALWAYS publish the msg
+            if results.boxes:
+                for box in results.boxes:
+                    det = Detection2D()
+                    det.bbox.center.position.x = float(box.xywh[0][0])
+                    det.bbox.center.position.y = float(box.xywh[0][1])
+                    det.bbox.size_x = float(box.xywh[0][2])
+                    det.bbox.size_y = float(box.xywh[0][3])
 
-                hyp = ObjectHypothesisWithPose()
-                # Use class name instead of ID for easier dashboard debugging
-                hyp.hypothesis.class_id = self.model.names[int(box.cls[0])]
-                hyp.hypothesis.score = float(box.conf[0])
-                det.results.append(hyp)
-                bb_msg.detections.append(det)
+                    hyp = ObjectHypothesisWithPose()
+                    hyp.hypothesis.class_id = self.model.names[int(box.cls[0])]
+                    hyp.hypothesis.score = float(box.conf[0])
+                    det.results.append(hyp)
+                    bb_msg.detections.append(det)
+            
+            # This now sends an empty detections list [] when results.boxes is empty
             self.bb_pub.publish(bb_msg)
 
         # --- Output 3: Pose Markers (Specific to Pose models) ---
