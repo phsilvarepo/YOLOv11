@@ -189,7 +189,7 @@ An **empty** `detections` array is published when no objects are detected, so do
 
 ## Current Use Cases
 
-# Vine Leaf Segmentation
+### Vine Leaf Segmentation
 
 Segmentation model trained to recognize vineleafs:
 
