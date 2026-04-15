@@ -186,3 +186,13 @@ An **empty** `detections` array is published when no objects are detected, so do
 | `numpy < 2` | pip |
 
 ---
+
+## Current Use Cases
+
+# Vine Leaf Segmentation
+
+Segmentation model trained to recognize vineleafs:
+
+https://github.com/phsilvarepo/YOLOv11/releases/download/v1/leaf_seg.pt
+
+---
